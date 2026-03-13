@@ -8,7 +8,7 @@ import zipfile
 
 # 页面配置
 st.set_page_config(page_title="RandomSCC 自动化工具", layout="wide")
-st.title("📦 RandomSCC 数据填充工具 (全自定义版)")
+st.title("📦 RandomSCC 数据填充工具")
 st.markdown("""
 ### 使用说明：
 1. 依次上传三个必要的 Excel 文件。
@@ -20,15 +20,15 @@ st.markdown("""
 col1, col2, col3 = st.columns(3)
 
 with col1:
-    st.subheader("1. 基础数据")
+    st.subheader("1. 整柜数据")
     ci_file = st.file_uploader("上传 containerinformation.xlsx", type=["xlsx"], key="ci")
 
 with col2:
-    st.subheader("2. Excel 模板")
+    st.subheader("2. ICS 表头")
     tmpl_file = st.file_uploader("上传 icstemplate.xlsx", type=["xlsx"], key="tmpl")
 
 with col3:
-    st.subheader("3. 随机数据源")
+    st.subheader("3. RSC 源数据")
     sc_file = st.file_uploader("上传 realsc.xlsx", type=["xlsx"], key="sc")
 
 # --- 第二部分：核心处理逻辑 ---
