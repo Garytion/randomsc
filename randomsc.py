@@ -5,47 +5,60 @@ from openpyxl.styles import Alignment, Font
 import random
 import io
 import zipfile
-import os  # <--- 关键修复：一定要加上这一行
 
 # 页面配置
 st.set_page_config(page_title="RandomSCC 自动化工具", layout="wide")
-st.title("📦 RandomSCC 数据填充工具")
-st.markdown("上传 `containerinformation.xlsx` 文件，点击开始即可生成处理后的文件包。")
+st.title("📦 RandomSCC 数据填充工具 (全自定义版)")
+st.markdown("""
+### 使用说明：
+1. 依次上传三个必要的 Excel 文件。
+2. 系统检查文件无误后，点击“生成”按钮。
+3. 处理完成后，点击下载生成的 ZIP 压缩包。
+""")
 
-# 1. 配置检查：确保模板和数据源已在 GitHub 仓库中
-st.sidebar.header("配置检查")
-template_file = 'icstemplate.xlsx'
-realsc_file = 'realsc.xlsx'
+# --- 第一部分：文件上传界面 ---
+col1, col2, col3 = st.columns(3)
 
-# 检查文件是否在当前目录下
-if not os.path.exists(template_file) or not os.path.exists(realsc_file):
-    st.error(f"⚠️ 仓库中缺少必要文件！请确保 {template_file} 和 {realsc_file} 已上传到 GitHub 根目录。")
-    st.stop()
-else:
-    st.sidebar.success("✅ 静态资源（模板与数据源）已就绪")
+with col1:
+    st.subheader("1. 基础数据")
+    ci_file = st.file_uploader("上传 containerinformation.xlsx", type=["xlsx"], key="ci")
 
-# 2. 上传文件界面
-uploaded_file = st.file_uploader("第一步：请选择 containerinformation.xlsx 文件", type=["xlsx"])
+with col2:
+    st.subheader("2. Excel 模板")
+    tmpl_file = st.file_uploader("上传 icstemplate.xlsx", type=["xlsx"], key="tmpl")
 
-if uploaded_file:
-    st.info("文件已上传，准备就绪。")
-    if st.button("🚀 第二步：开始批量生成并打包"):
+with col3:
+    st.subheader("3. 随机数据源")
+    sc_file = st.file_uploader("上传 realsc.xlsx", type=["xlsx"], key="sc")
+
+# --- 第二部分：核心处理逻辑 ---
+if ci_file and tmpl_file and sc_file:
+    st.success("✅ 三个文件已全部上传，可以开始处理！")
+    
+    if st.button("🚀 批量生成并打包下载"):
         try:
-            # 读取 realsc
-            df_realsc = pd.read_excel(realsc_file, header=None)
+            # 1. 处理 realsc 数据池
+            df_realsc = pd.read_excel(sc_file, header=None)
             df_realsc.dropna(how='all', inplace=True)
             realsc_data = df_realsc.values.tolist()
             # 每4行一组
             realsc_groups = [realsc_data[i:i+4] for i in range(0, len(realsc_data), 4) if len(realsc_data[i:i+4]) == 4]
 
-            # 读取上传的 containerinformation
-            df_ci = pd.read_excel(uploaded_file)
+            # 2. 处理 containerinformation
+            df_ci = pd.read_excel(ci_file)
+            if '单号' not in df_ci.columns:
+                st.error("错误：containerinformation 文件中未找到 '单号' 列！")
+                st.stop()
+            
             df_ci['单号'] = df_ci['单号'].ffill()
             grouped = df_ci.groupby('单号')
 
-            # 准备内存中的 ZIP 压缩包
+            # 3. 准备 ZIP 压缩包容器
             zip_buffer = io.BytesIO()
             
+            # 读取模板的基础字节，方便重复加载
+            template_bytes = tmpl_file.read()
+
             with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
                 # 样式定义
                 custom_alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
@@ -58,11 +71,11 @@ if uploaded_file:
                 for idx, (order_no, group) in enumerate(grouped):
                     status_text.text(f"正在处理单号: {order_no} ({idx+1}/{total_groups})")
                     
-                    # 加载模板
-                    wb = openpyxl.load_workbook(template_file)
+                    # 每次从内存字节中重新加载模板
+                    wb = openpyxl.load_workbook(io.BytesIO(template_bytes))
                     ws = wb.active 
                     
-                    # 填充逻辑
+                    # --- 填充逻辑 ---
                     ws['B5'] = str(order_no).upper()
                     f130_val = ws['F130'].value
 
@@ -82,7 +95,7 @@ if uploaded_file:
                             ws.cell(row=curr_row, column=5, value=row_data['重量(KGS)'])
                             ws.cell(row=curr_row, column=6, value=f130_val)
 
-                    # 随机 realsc 填充
+                    # --- 随机填充 realsc ---
                     if realsc_groups:
                         chosen_sc = random.choice(realsc_groups)
                         target_rows = [14, 15, 18, 19]
@@ -92,7 +105,7 @@ if uploaded_file:
                                     final_val = str(value).upper() if isinstance(value, str) else value
                                     ws.cell(row=target_rows[r_idx], column=c_idx, value=final_val)
 
-                    # 全表格式化
+                    # --- 全表格式化 ---
                     for row in ws.iter_rows():
                         for cell in row:
                             cell.alignment = custom_alignment
@@ -100,22 +113,23 @@ if uploaded_file:
                             if isinstance(cell.value, str):
                                 cell.value = cell.value.upper()
 
-                    # 将文件保存到内存流
+                    # 保存当前生成的 Excel 到 ZIP
                     file_stream = io.BytesIO()
                     wb.save(file_stream)
                     zip_file.writestr(f"{order_no}.xlsx", file_stream.getvalue())
                     
-                    # 更新进度
                     progress_bar.progress((idx + 1) / total_groups)
 
             status_text.text("✅ 所有文件处理完成！")
             
-            # 提供 ZIP 下载
+            # 4. 提供 ZIP 下载按钮
             st.download_button(
-                label="📥 点击下载生成的文件包 (ZIP格式)",
+                label="📥 点击下载所有生成的文件 (ZIP)",
                 data=zip_buffer.getvalue(),
-                file_name="processed_files.zip",
+                file_name="processed_results.zip",
                 mime="application/x-zip-compressed"
             )
         except Exception as e:
-            st.error(f"处理过程中出错: {e}")
+            st.error(f"处理过程中发生错误: {e}")
+else:
+    st.info("💡 请在上方上传所有三个 Excel 文件以解锁生成按钮。")
