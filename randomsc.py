@@ -5,33 +5,37 @@ from openpyxl.styles import Alignment, Font
 import random
 import io
 import zipfile
+import os  # <--- 关键修复：一定要加上这一行
 
 # 页面配置
 st.set_page_config(page_title="RandomSCC 自动化工具", layout="wide")
 st.title("📦 RandomSCC 数据填充工具")
 st.markdown("上传 `containerinformation.xlsx` 文件，点击开始即可生成处理后的文件包。")
 
-# 1. 侧边栏：确认静态文件是否存在
+# 1. 配置检查：确保模板和数据源已在 GitHub 仓库中
 st.sidebar.header("配置检查")
 template_file = 'icstemplate.xlsx'
 realsc_file = 'realsc.xlsx'
 
+# 检查文件是否在当前目录下
 if not os.path.exists(template_file) or not os.path.exists(realsc_file):
-    st.error("⚠️ 仓库中缺少 icstemplate.xlsx 或 realsc.xlsx，请先上传！")
+    st.error(f"⚠️ 仓库中缺少必要文件！请确保 {template_file} 和 {realsc_file} 已上传到 GitHub 根目录。")
     st.stop()
 else:
-    st.sidebar.success("✅ 模板文件已就绪")
+    st.sidebar.success("✅ 静态资源（模板与数据源）已就绪")
 
 # 2. 上传文件界面
-uploaded_file = st.file_uploader("请选择 containerinformation.xlsx 文件", type=["xlsx"])
+uploaded_file = st.file_uploader("第一步：请选择 containerinformation.xlsx 文件", type=["xlsx"])
 
 if uploaded_file:
-    if st.button("🚀 开始批量生成并打包"):
+    st.info("文件已上传，准备就绪。")
+    if st.button("🚀 第二步：开始批量生成并打包"):
         try:
             # 读取 realsc
             df_realsc = pd.read_excel(realsc_file, header=None)
             df_realsc.dropna(how='all', inplace=True)
             realsc_data = df_realsc.values.tolist()
+            # 每4行一组
             realsc_groups = [realsc_data[i:i+4] for i in range(0, len(realsc_data), 4) if len(realsc_data[i:i+4]) == 4]
 
             # 读取上传的 containerinformation
@@ -48,14 +52,17 @@ if uploaded_file:
                 custom_font = Font(name='微软雅黑', size=11)
 
                 progress_bar = st.progress(0)
+                status_text = st.empty()
                 total_groups = len(grouped)
 
                 for idx, (order_no, group) in enumerate(grouped):
+                    status_text.text(f"正在处理单号: {order_no} ({idx+1}/{total_groups})")
+                    
                     # 加载模板
                     wb = openpyxl.load_workbook(template_file)
                     ws = wb.active 
                     
-                    # 填充逻辑 (保持你之前的逻辑)
+                    # 填充逻辑
                     ws['B5'] = str(order_no).upper()
                     f130_val = ws['F130'].value
 
@@ -82,7 +89,8 @@ if uploaded_file:
                         for r_idx, data_row in enumerate(chosen_sc):
                             for c_idx, value in enumerate(data_row, start=3):
                                 if c_idx <= 8:
-                                    ws.cell(row=target_rows[r_idx], column=c_idx, value=str(value).upper() if isinstance(value, str) else value)
+                                    final_val = str(value).upper() if isinstance(value, str) else value
+                                    ws.cell(row=target_rows[r_idx], column=c_idx, value=final_val)
 
                     # 全表格式化
                     for row in ws.iter_rows():
@@ -100,10 +108,11 @@ if uploaded_file:
                     # 更新进度
                     progress_bar.progress((idx + 1) / total_groups)
 
+            status_text.text("✅ 所有文件处理完成！")
+            
             # 提供 ZIP 下载
-            st.success(f"✅ 成功处理 {total_groups} 个单号！")
             st.download_button(
-                label="📥 点击下载生成的文件包 (ZIP)",
+                label="📥 点击下载生成的文件包 (ZIP格式)",
                 data=zip_buffer.getvalue(),
                 file_name="processed_files.zip",
                 mime="application/x-zip-compressed"
